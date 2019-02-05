@@ -1,14 +1,15 @@
 package sqlstore
 
 import (
+	"regexp"
 	"strings"
 
 	mysql "github.com/go-sql-driver/mysql"
 )
 
 type Config struct {
-	URL      string `default:""`
 	Driver   string `default:"sqlite3"`
+	URL      string `default:""`
 	Host     string `default:""`
 	User     string `default:""`
 	Password string `default:""`
@@ -28,20 +29,20 @@ func (c *Config) DSN() string {
 	// otherwise, generate from individual fields
 	switch c.Driver {
 	case POSTGRES:
-		params := map[string]string{
-			"host":     c.Host,
-			"dbname":   c.Name,
-			"user":     c.User,
-			"password": c.Password,
-			"sslmode":  c.SSLMode,
+		if c.Host != "" {
+			dsn += " host=" + c.Host
 		}
-
-		for k, v := range params {
-			if v == "" {
-				continue
-			}
-
-			dsn = dsn + k + "=" + v + " "
+		if c.Name != "" {
+			dsn += " dbname=" + c.Name
+		}
+		if c.User != "" {
+			dsn += " user=" + c.User
+		}
+		if c.Password != "" {
+			dsn += " password=" + c.Password
+		}
+		if c.SSLMode != "" {
+			dsn += " sslmode=" + c.SSLMode
 		}
 
 		dsn = strings.TrimSpace(dsn)
@@ -54,15 +55,29 @@ func (c *Config) DSN() string {
 		mc.DBName = c.Name
 		mc.Params = map[string]string{
 			"parseTime": "true",
-			"loc":       "Local",
 		}
 		if c.SSLMode != "" {
 			mc.Params["tls"] = c.SSLMode
 		}
 		dsn = mc.FormatDSN()
 	case SQLITE:
-		dsn = c.Name + "?_loc=auto&_busy_timeout=5000"
+		dsn = c.Name + "?_busy_timeout=10000"
 	}
 
 	return dsn
+}
+
+// Dbname returns the database name, either from config values or from the connection URL
+func (c *Config) Dbname() string {
+	if c.Name != "" {
+		return c.Name
+	}
+
+	re := regexp.MustCompile(`(?:dbname=|[^\/]?\/)(\w+)`)
+	m := re.FindStringSubmatch(c.URL)
+	if len(m) > 1 {
+		return m[1]
+	}
+
+	return ""
 }

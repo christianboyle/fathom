@@ -27,34 +27,33 @@ type Datastore interface {
 
 	// site stats
 	GetSiteStats(int64, time.Time) (*models.SiteStats, error)
-	GetSiteStatsPerDay(int64, time.Time, time.Time) ([]*models.SiteStats, error)
-	SaveSiteStats(*models.SiteStats) error
 	GetAggregatedSiteStats(int64, time.Time, time.Time) (*models.SiteStats, error)
-	GetTotalSiteViews(int64, time.Time, time.Time) (int64, error)
-	GetTotalSiteVisitors(int64, time.Time, time.Time) (int64, error)
-	GetTotalSiteSessions(int64, time.Time, time.Time) (int64, error)
-	GetAverageSiteDuration(int64, time.Time, time.Time) (float64, error)
-	GetAverageSiteBounceRate(int64, time.Time, time.Time) (float64, error)
+	SelectSiteStats(int64, time.Time, time.Time) ([]*models.SiteStats, error)
 	GetRealtimeVisitorCount(int64) (int64, error)
+	SaveSiteStats(*models.SiteStats) error
 
 	// pageviews
 	InsertPageviews([]*models.Pageview) error
 	UpdatePageviews([]*models.Pageview) error
 	GetPageview(string) (*models.Pageview, error)
-	GetProcessablePageviews() ([]*models.Pageview, error)
+	GetProcessablePageviews(limit int) ([]*models.Pageview, error)
 	DeletePageviews([]*models.Pageview) error
 
 	// page stats
-	GetPageStats(int64, time.Time, string, string) (*models.PageStats, error)
+	GetPageStats(int64, time.Time, int64, int64) (*models.PageStats, error)
 	SavePageStats(*models.PageStats) error
-	GetAggregatedPageStats(int64, time.Time, time.Time, int64) ([]*models.PageStats, error)
+	SelectAggregatedPageStats(int64, time.Time, time.Time, int, int) ([]*models.PageStats, error)
 	GetAggregatedPageStatsPageviews(int64, time.Time, time.Time) (int64, error)
 
 	// referrer stats
-	GetReferrerStats(int64, time.Time, string, string) (*models.ReferrerStats, error)
+	GetReferrerStats(int64, time.Time, int64, int64) (*models.ReferrerStats, error)
 	SaveReferrerStats(*models.ReferrerStats) error
-	GetAggregatedReferrerStats(int64, time.Time, time.Time, int64) ([]*models.ReferrerStats, error)
+	SelectAggregatedReferrerStats(int64, time.Time, time.Time, int, int) ([]*models.ReferrerStats, error)
 	GetAggregatedReferrerStatsPageviews(int64, time.Time, time.Time) (int64, error)
+
+	// hostnames
+	HostnameID(name string) (int64, error)
+	PathnameID(name string) (int64, error)
 
 	// misc
 	Health() error

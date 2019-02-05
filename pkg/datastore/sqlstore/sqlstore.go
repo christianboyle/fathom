@@ -19,6 +19,8 @@ const (
 	MYSQL    = "mysql"
 	POSTGRES = "postgres"
 	SQLITE   = "sqlite3"
+
+	DATE_FORMAT = "2006-01-02 15:00:00"
 )
 
 type sqlstore struct {
@@ -33,16 +35,20 @@ var ErrNoResults = errors.New("datastore: query returned 0 results")
 
 // New creates a new database pool
 func New(c *Config) *sqlstore {
-	dbx, err := sqlx.Connect(c.Driver, c.DSN())
+	dsn := c.DSN()
+	dbx, err := sqlx.Connect(c.Driver, dsn)
 	if err != nil {
 		log.Fatalf("Error connecting to database: %s", err)
 	}
 	db := &sqlstore{dbx, c.Driver, c}
 
-	// write log statement
-	log.Printf("Connected to %s database: %s", c.Driver, c.DSN())
+	if c.Host == "" || c.Driver == SQLITE {
+		log.Printf("Connected to %s database: %s", c.Driver, c.Dbname())
+	} else {
+		log.Printf("Connected to %s database: %s on %s", c.Driver, c.Dbname(), c.Host)
+	}
 
-	// run migrations
+	// apply database migrations (if any)
 	db.Migrate()
 
 	return db

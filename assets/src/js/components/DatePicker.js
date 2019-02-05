@@ -5,84 +5,114 @@ import { bind } from 'decko';
 import Pikadayer from './Pikadayer.js';
 import classNames from 'classnames';
 
-const defaultPeriod = 'last-7-days';
-const padZero = function(n){return n<10? '0'+n:''+n;}
+const padZero = (n) => n < 10 ? '0'+n : ''+n;
 
-function getNow() {
-  let now = new Date()
-  let tzOffset = now.getTimezoneOffset()  * 60 * 1000;
+let now = new Date();
+window.setInterval(() => {
+  now = new Date();
+}, 60000 );
 
-  // if we're ahead of UTC, stick to UTC's "now"
-  // this is ugly but a sad necessity for now because we store and aggregate statistics using UTC dates (without time data)
-  // For those ahead of UTC, "today" will always be empty if they're checking early on in their day
-  // see https://github.com/usefathom/fathom/issues/134
-  if (tzOffset < 0) {
-    now.setTime(now.getTime() + tzOffset )
-  }
-
-  return now
-}
-
-// today, yesterday, this week, last 7 days, last 30 days
 const availablePeriods = {
-  'today': {
-    label: 'Today',
+  '1d': {
+    label: '1d',
     start: function() {
-      const now = getNow();
       return new Date(now.getFullYear(), now.getMonth(), now.getDate());
     },
     end: function() {
-      const now = getNow();
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return this.start();
     },
- },
-  'last-7-days': {
-    label: 'Last 7 days',
+  },
+  '1w': {
+    label: '1w',
     start: function() {
-      const now = getNow();
       return new Date(now.getFullYear(), now.getMonth(), now.getDate()-6);
     },
     end: function() {
-      const now = getNow();
       return new Date(now.getFullYear(), now.getMonth(), now.getDate());
     },
  },
-  'last-30-days': {
-    label: 'Last 30 days',
+ '4w': {
+    label: '4w',
     start: function() {
-      const now = getNow();
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate()-29);
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate()-4*7+1);
     },
     end: function() {
-      const now = getNow();
       return new Date(now.getFullYear(), now.getMonth(), now.getDate());
     },
  },
-  'this-year': {
-    label: 'This year',
+ 'mtd': {
+    label: 'Mtd',
     start: function() {
-      const now = getNow();
-      return new Date(now.getFullYear(), 0, 1);
+      return new Date(now.getFullYear(),  now.getMonth(), 1);
     },
     end: function() {
-      const now = getNow();
-      return new Date(this.start().getFullYear() + 1, 0, 0);
+      return new Date(now.getFullYear(), now.getMonth()+1, 0);
     },
  },
+'qtd': {
+  label: 'Qtd',
+  start: function() {
+    let qs = Math.ceil((now.getMonth()+1) / 3) * 3 - 3;
+    return new Date(now.getFullYear(), qs, 1);
+
+  },
+  end: function() {
+    let start = this.start();
+    return new Date(start.getFullYear(), start.getMonth() + 3, 0);
+  },
+ },
+ 'ytd': {
+  label: 'Ytd',
+  start: function() {
+    return new Date(now.getFullYear(), 0, 1);
+  },
+  end: function() {
+    return new Date(now.getFullYear()+1, 0, 0);
+  },
+ },
+ 'all': {
+  label: 'All',
+  start: function() {
+    return new Date(2018, 6, 1);
+  },
+  end: function() {
+    return new Date();
+  },
+ }
+}
+
+function hashParams() {
+ var params = {}, 
+  match, 
+  matches =  window.location.hash.substring(2).split("&");
+
+ for(var i=0; i<matches.length; i++) {
+   match = matches[i].split('=')
+   params[match[0]] = decodeURIComponent(match[1]);
+ }
+
+ return params;
 }
 
 class DatePicker extends Component {
   constructor(props) {
     super(props)
 
+    let params = hashParams();
+
     this.state = {
-      period: window.location.hash.substring(2) || window.localStorage.getItem('period') || defaultPeriod,
-      before: 0, // UTC timestamp
-      after: 0, // UTC timestamp
-      startDate: null, // local date object
-      endDate: null, // local date object
+      period: params.p || window.localStorage.getItem('period') || '1w',
+      startDate: new Date(params.s || 'now'),
+      endDate: new Date(params.e || 'now'),
+      groupBy: params.g || 'day',
     }    
-    this.updateDatesFromPeriod(this.state.period)
+    this.state.diff = this.calculateDiff(this.state.startDate, this.state.endDate)
+
+    if(this.state.period !== 'custom') {
+      this.updateDatesFromPeriod(this.state.period, params.g)
+    } else {
+      this.props.onChange(this.state);
+    }
   }
 
   componentDidMount() {
@@ -94,49 +124,64 @@ class DatePicker extends Component {
   }
 
   @bind
-  updateDatesFromPeriod(period) {
+  updateDatesFromPeriod(period, groupBy) {
     if(typeof(availablePeriods[period]) !== "object") {
-      return;
+      period = "1w";
     }
     let p = availablePeriods[period];
-    this.setDateRange(p.start(), p.end(), period);
+    this.setDateRange(p.start(), p.end(), period, groupBy);
   }
 
   @bind
-  setDateRange(startDate, endDate, period) {
+  setDateRange(start, end, period, groupBy) {
     // don't update state if start > end. user may be busy picking dates.
-    // TODO: show error
-    if(startDate > endDate) {
+    if(start > end) {
       return;
     }
 
     // include start & end day by forcing time
-    startDate.setHours(0, 0, 0);
-    endDate.setHours(23, 59, 59);
+    start.setHours(0, 0, 0);
+    end.setHours(23, 59, 59);
 
-    // create unix timestamps from local date objects
-    let before, after;
-    const timezoneOffset = (new Date()).getTimezoneOffset() * 60;
-    before = Math.round((+endDate) / 1000) - timezoneOffset;
-    after = Math.round((+startDate) / 1000) - timezoneOffset;
+    let diff =  this.calculateDiff(start, end)
+    if(!groupBy) {
+      groupBy = 'day';
 
+      if(diff >= 31) {
+        groupBy = 'month';
+      } else if( diff < 2) {
+        groupBy = 'hour';
+      }
+    }
+   
+   
     this.setState({
-      period: period || '',
-      startDate: startDate,
-      endDate: endDate,
-      before: before,
-      after: after,
+      period: period,
+      startDate: start,
+      endDate: end,
+      diff: diff,
+      groupBy: groupBy,
     });
 
     // use slight delay for updating rest of application to allow this function to be called again
     if(!this.timeout) {
       this.timeout = window.setTimeout(() => {
         this.props.onChange(this.state);
+        this.updateURL()
         this.timeout = null;
+      }, 5)
+    }
+  }
 
-        window.localStorage.setItem('period', this.state.period)
-        window.history.replaceState(this.state, null, `#!${this.state.period}`)
-      }, 2)
+  calculateDiff(start, end) {
+    return Math.round((end - start) / 1000 / 60 / 60 / 24)
+  }
+
+  updateURL() {
+    if(this.state.period !== 'custom') {
+      window.history.replaceState(this.state, null, `#!p=${this.state.period}&g=${this.state.groupBy}`)
+    } else {
+      window.history.replaceState(this.state, null, `#!p=custom&s=${encodeURIComponent(this.state.startDate.toISOString())}&e=${encodeURIComponent(this.state.endDate.toISOString())}&g=${this.state.groupBy}`)
     }
   }
 
@@ -149,6 +194,7 @@ class DatePicker extends Component {
       return;
     }
 
+    window.localStorage.setItem('period', this.state.period)
     this.updateDatesFromPeriod(newPeriod);
   }
 
@@ -158,12 +204,12 @@ class DatePicker extends Component {
 
   @bind
   setStartDate(date) {
-    this.setDateRange(date, this.state.endDate, '')
+    this.setDateRange(date, this.state.endDate, 'custom')
   }
 
   @bind
   setEndDate(date) {
-    this.setDateRange(this.state.startDate, date, '')
+    this.setDateRange(this.state.startDate, date, 'custom')
   }
 
   @bind
@@ -195,26 +241,48 @@ class DatePicker extends Component {
     }
   }
 
+  @bind
+  setGroupBy(e) {
+    this.setState({
+      groupBy: e.target.getAttribute('data-value')
+    })
+    this.props.onChange(this.state);
+    this.updateURL()
+  }
+
   render(props, state) {
-    const links = Object.keys(availablePeriods).map((id) => {
+    const presets = Object.keys(availablePeriods).map((id) => {
       let p = availablePeriods[id];
       return (
-        <li class={classNames({ active: id == state.period })}>
+        <li class={classNames({ current: id == state.period })}>
           <a href="javascript:void(0);" data-value={id} onClick={this.setPeriod}>{p.label}</a>
         </li>
       );
     });
 
     return (
-      <ul class="date-nav cf">
-        {links}
-        <li class="custom">
-          <Pikadayer value={this.dateValue(state.startDate)} onSelect={this.setStartDate} />
-          <span style="margin: 0 8px"> to </span>
-          <Pikadayer value={this.dateValue(state.endDate)} onSelect={this.setEndDate}  />
-        </li>
-      </ul>
+      <nav class="date-nav sm ac">
+        <ul>
+          {presets}
+        </ul>
+        <ul>
+          <li><Pikadayer value={this.dateValue(state.startDate)} onSelect={this.setStartDate} /> <span>›</span> <Pikadayer value={this.dateValue(state.endDate)} onSelect={this.setEndDate}  /></li>
+        </ul>
+        <ul>
+         {state.diff < 31 ? (<li class={classNames({ current: 'hour' === state.groupBy })}><a href="javascript:;" data-value="hour" onClick={this.setGroupBy}>Hourly</a></li>) : ''}
+         <li class={classNames({ current: 'day' === state.groupBy })}><a href="javascript:;" data-value="day" onClick={this.setGroupBy}>Daily</a></li>
+         {state.diff >= 31 ? (<li class={classNames({ current: 'month' === state.groupBy })}><a href="javascript:;" data-value="month" onClick={this.setGroupBy}>Monthly</a></li>) : ''}
+        </ul>
+      </nav>
     )
+
+    /*
+    <ul>
+        <li class="current"><a href="#">Daily</a></li>
+        <li><a href="#">Monthly</a></li>
+    </ul>
+    */
+
   }
 }
 

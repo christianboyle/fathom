@@ -5,6 +5,7 @@ import * as numbers from '../lib/numbers.js';
 import Client from '../lib/client.js';
 import { bind } from 'decko';
 import classNames from 'classnames';
+import { runInNewContext } from 'vm';
 
 const dayInSeconds = 60 * 60 * 24;
 
@@ -15,6 +16,7 @@ class Table extends Component {
 
     this.state = {
       records: [],
+      offset: 0,
       limit: 15,
       loading: true,
       total: 0,
@@ -30,14 +32,16 @@ class Table extends Component {
   }
 
   paramsChanged(o, n) {
-    return o.siteId != n.siteId || o.before != n.before || o.after != n.after;
+    return o.siteId !== n.siteId || o.dateRange[0] != n.dateRange[0] || o.dateRange[1] != n.dateRange[1];
   }
   
   @bind
   fetchData(props) {
     this.setState({ loading: true });
+    let before = props.dateRange[1]/1000;
+    let after = props.dateRange[0]/1000;
 
-    Client.request(`/sites/${props.siteId}/${props.endpoint}?before=${props.before}&after=${props.after}&limit=${this.state.limit}`)
+    Client.request(`/sites/${props.siteId}/stats/${props.endpoint}/agg?before=${before}&after=${after}&offset=${this.state.offset}&limit=${this.state.limit}`)
       .then((d) => {
          // request finished; check if timestamp range is still the one user wants to see
         if( this.paramsChanged(props, this.props) ) {
@@ -51,18 +55,32 @@ class Table extends Component {
       });
 
      // fetch totals too
-     Client.request(`/sites/${props.siteId}/${props.endpoint}/pageviews?before=${props.before}&after=${props.after}`)
+     Client.request(`/sites/${props.siteId}/stats/${props.endpoint}/agg/pageviews?before=${before}&after=${after}`)
       .then((d) => {
         this.setState({
           total: d
         });
       });
+  }
 
+  @bind 
+  paginateNext() {
+    this.setState({ offset: this.state.offset + this.state.limit })
+    this.fetchData(this.props)
+  }
+
+  @bind 
+  paginatePrev() {
+    if(this.state.offset == 0) {
+      return;
+    }
+
+    this.setState({ offset: Math.max(0, this.state.offset - this.state.limit) })
+    this.fetchData(this.props)
   }
 
   render(props, state) {
     const tableRows = state.records !== null && state.records.length > 0 ? state.records.map((p, i) => {
-
       let href = (p.Hostname + p.Pathname) || p.URL;
       let widthClass = "";
       if(state.total > 0) {
@@ -86,6 +104,13 @@ class Table extends Component {
       </div>
     )}) : <div class="table-row"><div class="cell main-col">Nothing here, yet.</div></div>;
 
+  // pagination row: only show when total # of results doesn't fit in one table page  
+  const pagination = tableRows.length == state.limit || state.offset >= state.limit ? (
+    <div class="row pag">
+      <a href="javascript:void(0)" onClick={this.paginatePrev} class="back">‹</a>
+      <a href="javascript:void(0)" onClick={this.paginateNext} class="next right">›</a>
+    </div>) : '';
+
     return (
       <div class={classNames({ loading: state.loading })}>
         <div class="table-row header">
@@ -95,6 +120,7 @@ class Table extends Component {
         </div>
         <div>
           {tableRows}
+          {pagination}
         </div>
       </div>
     )
